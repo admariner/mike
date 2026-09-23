@@ -188,7 +188,7 @@ export type StoredObjectMetadata = {
 };
 
 export class StorageOperationError extends Error {
-  constructor(operation: string, options?: { cause?: unknown }) {
+  constructor(readonly operation: string, options?: { cause?: unknown }) {
     super(`Object storage ${operation} failed`, options);
     this.name = "StorageOperationError";
   }
@@ -337,7 +337,7 @@ export function deleteFileBestEffort(
 ): Promise<void | undefined> {
   return bestEffort(deleteFile(key), {
     what: `storage-delete:${stage}`,
-    tags: { component: "storage", stage },
+    tags: { component: "storage", stage, storage_operation: "delete" },
   });
 }
 

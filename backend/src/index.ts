@@ -22,14 +22,16 @@ const PORT = process.env.PORT ?? 3001;
 // bind the port or start a worker — a process that has already decided to
 // exit must not serve a request or claim a job in its last two seconds.
 async function validateBootConfiguration(): Promise<void> {
+  let stage = "runtime-config";
   try {
     validateRuntimeConfiguration();
+    stage = "manifest-key";
     const signingKey = manifestPublicKey();
     if (signingKey) {
       console.log(`Export manifests signed with key ${signingKey.key_id}`);
     }
   } catch (err) {
-    reportError(err, { tags: { component: "boot" }, level: "fatal" });
+    reportError(err, { tags: { component: "boot", stage }, level: "fatal" });
     console.error(err instanceof Error ? err.message : String(err));
     await flushSentry();
     process.exit(1);
@@ -160,18 +162,21 @@ async function shutdown(signal: string) {
     process.exit(1);
   }, 15_000);
   forceExit.unref();
+  let stage = "shutdown-http";
   try {
     const listening = server;
     if (listening)
       await new Promise<void>((resolve, reject) =>
         listening.close((err) => (err ? reject(err) : resolve())),
       );
+    stage = "shutdown-workers";
     await stopBackgroundWork();
+    stage = "shutdown-flush";
     await flushSentry();
     console.log("Shutdown complete");
     process.exit(0);
   } catch (err) {
-    reportError(err, { tags: { component: "shutdown" } });
+    reportError(err, { tags: { component: "shutdown", stage } });
     console.error("Error during graceful shutdown", err);
     await flushSentry();
     process.exit(1);
