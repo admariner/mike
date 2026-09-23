@@ -5,7 +5,11 @@
 
 import { isPanelDocument } from "@/app/components/shared/types";
 import { authenticatedFetch } from "@/app/lib/authEvents";
-import { reportApiFailure, reportNetworkFailure } from "@/app/lib/errorReporting";
+import {
+    reportApiFailure,
+    reportNetworkFailure,
+    trackPendingRequest,
+} from "@/app/lib/errorReporting";
 import {
     UploadBatchError,
     createControlRequestRetryPolicy,
@@ -93,6 +97,7 @@ export const API_BASE = "/api";
  * before it propagates as the bare TypeError the browser throws.
  */
 const apiFetch: typeof fetch = async (input, init) => {
+    const release = trackPendingRequest();
     try {
         return await authenticatedFetch(input, init);
     } catch (error) {
@@ -112,6 +117,8 @@ const apiFetch: typeof fetch = async (input, init) => {
             url: String(input),
         });
         throw error;
+    } finally {
+        release();
     }
 };
 const isDev = process.env.NODE_ENV !== "production";
