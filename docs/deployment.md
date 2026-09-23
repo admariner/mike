@@ -537,8 +537,19 @@ of on the next fresh install.
 - Use production Supabase credentials rather than the local demo values.
 - Keep backend secrets out of `NEXT_PUBLIC_*` variables.
 - Configure spending limits for model-provider keys where supported.
-- Confirm LibreOffice is available on the backend process path if document
-  conversion is enabled.
+- Confirm LibreOffice is available to the backend and worker if document
+  conversion is enabled. The backend Docker image and `backend/nixpacks.toml`
+  install it; elsewhere the backend looks on `PATH`, in the usual Linux
+  locations, and in `/Applications/LibreOffice.app` on macOS. Set
+  `SOFFICE_BINARY_PATH` to the `soffice` executable for any other location.
+  Without it, Word and presentation uploads are kept without a PDF rendition
+  and the worker logs `conversion_unavailable` once per upload.
+- Confirm the backend can reach the object store with the configured `R2_*`
+  credentials before accepting uploads. When it cannot, completing an upload
+  answers 503 and the server log names the failing storage operation and the
+  store's own error (for example `ECONNREFUSED`, `InvalidAccessKeyId`, or
+  `NoSuchBucket`); clean-up deletes of temporary upload objects are reported
+  once per upload as warnings.
 - Review storage, logging, retention, and deletion behavior before processing
   confidential documents.
 
