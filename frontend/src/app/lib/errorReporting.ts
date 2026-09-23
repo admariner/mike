@@ -175,11 +175,13 @@ export function browserSentryOptions(env: {
         // Session replay is deliberately NOT enabled: it would record
         // privileged document text on screen.
         sendDefaultPii: false,
+        attachStacktrace: true,
         integrations: [privacyBoundaryIntegration(), Sentry.captureConsoleIntegration({ levels: ["error"] })],
         initialScope: {
             tags: {
                 service: "mike-frontend",
                 runtime: "browser",
+                build_mode: env.nodeEnv,
                 install: installKind(env.install),
             },
         },
@@ -205,10 +207,12 @@ export function serverSentryOptions(
         release: releaseName(env.SENTRY_RELEASE, env.GIT_SHA),
         tracesSampleRate: parseSampleRate(env.SENTRY_TRACES_SAMPLE_RATE, 0),
         sendDefaultPii: false,
+        attachStacktrace: true,
         initialScope: {
             tags: {
                 service: "mike-frontend",
                 runtime,
+                build_mode: env.NODE_ENV,
                 install: installKind(env.SENTRY_INSTALL),
             },
         },
