@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "./route";
 
+const reportError = vi.hoisted(() => vi.fn());
+vi.mock('@/app/lib/errorReporting', () => ({ reportError }));
 const fetchMock = vi.fn();
 const context = (path: string[]) => ({ params: Promise.resolve({ path }) });
 
@@ -14,6 +16,7 @@ async function readBody(response: Response) {
 describe("same-origin API gateway", () => {
     beforeEach(() => {
         fetchMock.mockReset();
+        reportError.mockReset();
         vi.stubGlobal("fetch", fetchMock);
     });
 
@@ -119,6 +122,7 @@ describe("same-origin API gateway", () => {
         expect(response.status).toBe(502);
         await expect(response.json()).resolves.toEqual({
             detail: "The API is temporarily unavailable.",
+            request_id: response.headers.get("x-request-id"),
         });
     });
 
@@ -141,7 +145,7 @@ describe("same-origin API gateway", () => {
     it("fails safely when production runtime configuration is missing", async () => {
         vi.stubEnv("NODE_ENV", "production");
         vi.stubEnv("API_BASE_URL", "");
-        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
         const request = new NextRequest("https://app.example.test/api/health");
 
         const response = await GET(request, context(["health"]));
@@ -150,12 +154,35 @@ describe("same-origin API gateway", () => {
         expect(response.status).toBe(502);
         await expect(response.json()).resolves.toEqual({
             detail: "The API is temporarily unavailable.",
+            request_id: response.headers.get("x-request-id"),
         });
         expect(errorSpy).toHaveBeenCalledWith(
             "[api-gateway] upstream request failed",
             expect.objectContaining({
-                error: "API_BASE_URL is required at runtime.",
+                stage: "gateway-config",
+                requestId: response.headers.get("x-request-id"),
             }),
         );
     });
+});
+
+
+it('correlates gateway failures with the browser using a generated ID and a safe route', async () => {
+    const error = new TypeError('fetch failed', { cause: Object.assign(new Error('private upstream'), { code: 'ECONNREFUSED' }) });
+    const fetch = vi.fn().mockRejectedValue(error);
+    vi.stubGlobal('fetch', fetch);
+    const request = new NextRequest('https://app.example.test/api/projects/private-name/documents?q=secret', {
+        headers: { 'x-request-id': 'untrusted-private-value' },
+    });
+    try {
+        const response = await GET(request, context(['projects', 'private-name', 'documents']));
+        const requestId = response.headers.get('x-request-id');
+        expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
+        expect((await response.json()).request_id).toBe(requestId);
+        expect(reportError).toHaveBeenLastCalledWith(error, { tags: {
+            component: 'api-gateway', stage: 'gateway-fetch', http_method: 'GET',
+            http_route: '/projects/:id/documents', http_status: 502, request_id: requestId,
+        } });
+        expect(JSON.stringify(reportError.mock.calls.at(-1)?.[1])).not.toMatch(/private|secret|upstream/);
+    } finally { vi.unstubAllGlobals(); }
 });
