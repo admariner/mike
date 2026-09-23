@@ -436,6 +436,10 @@ npm run build --prefix backend
 npm run build --prefix frontend
 ```
 
+If port 3001 (or `PORT`) is already taken, for example by the Docker Compose
+backend, the backend reports the bind failure and exits instead of starting
+without a listener.
+
 ### Running the backend image
 
 The backend image sets `NODE_ENV=production`, so it refuses to start unless

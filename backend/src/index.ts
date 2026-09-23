@@ -8,8 +8,13 @@ import { enforceDocumentLifecycleMigration } from "./lib/dbq/lifecycleGuard";
 import { manifestPublicKey } from "./lib/manifestSigning";
 import { validateRuntimeConfiguration } from "./lib/runtimeConfig";
 import { startAllWorkers, stopAllWorkers } from "./workerRuntime";
-import { flushSentry, reportError } from "./lib/observability/sentry";
-import { failBoot } from "./lib/processLifecycle";
+import { reportError } from "./lib/observability/sentry";
+import {
+  closeHttpServer,
+  createShutdown,
+  failBoot,
+  listenOrFail,
+} from "./lib/processLifecycle";
 
 const PORT = process.env.PORT ?? 3001;
 
@@ -113,7 +118,7 @@ async function main(): Promise<void> {
   // cost of gating is one round trip of boot latency, never a crash loop.
   await enforceDocumentLifecycleMigration();
 
-  server = app.listen(PORT, () => {
+  server = listenOrFail(app, PORT, () => {
     console.log(
       `Mike backend running on port ${PORT} (workers: ${WORKERS_MODE})`,
     );
@@ -151,35 +156,14 @@ async function stopBackgroundWork(): Promise<void> {
   });
 }
 
-async function shutdown(signal: string) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  console.log(`Shutting down gracefully (${signal})`);
-  const forceExit = setTimeout(() => {
-    console.error("Graceful shutdown timed out — forcing exit");
-    process.exit(1);
-  }, 15_000);
-  forceExit.unref();
-  let stage = "shutdown-http";
-  try {
-    const listening = server;
-    if (listening)
-      await new Promise<void>((resolve, reject) =>
-        listening.close((err) => (err ? reject(err) : resolve())),
-      );
-    stage = "shutdown-workers";
-    await stopBackgroundWork();
-    stage = "shutdown-flush";
-    await flushSentry();
-    console.log("Shutdown complete");
-    process.exit(0);
-  } catch (err) {
-    reportError(err, { tags: { component: "shutdown", stage } });
-    console.error("Error during graceful shutdown", err);
-    await flushSentry();
-    process.exit(1);
-  }
-}
+const shutdown = createShutdown({
+  // Set before anything stops so the worker thread's exit is not respawned.
+  onStart: () => {
+    shuttingDown = true;
+  },
+  closeServer: () => closeHttpServer(server),
+  stopBackgroundWork,
+});
 
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
