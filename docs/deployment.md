@@ -97,7 +97,9 @@ is not needed while building the frontend.
 
 Use:
 
-- `NODE_ENV=production` so startup enforces HTTPS and secure-cookie invariants;
+- `NODE_ENV=production` so startup enforces HTTPS and secure-cookie invariants
+  (the backend Docker image sets this by default; see
+  [Running the backend image](#running-the-backend-image));
 - the Supabase project URL for backend `SUPABASE_URL`;
 - the anon/publishable key for backend `SUPABASE_PUBLISHABLE_KEY`;
 - the service-role key for backend `SUPABASE_SECRET_KEY`; and
@@ -433,6 +435,31 @@ process manager or deployment platform:
 npm run build --prefix backend
 npm run build --prefix frontend
 ```
+
+### Running the backend image
+
+The backend image sets `NODE_ENV=production`, so it refuses to start unless
+`FRONTEND_URL` and `API_PUBLIC_URL` are set to `https` URLs (and
+`WORD_ADDIN_URL`, when set, is too). That default is deliberate: an image
+deployed without `NODE_ENV` must not quietly issue non-`Secure` cookies.
+Docker Compose overrides it with `NODE_ENV=development` and local `http` URLs,
+which is why `docker compose up` works without TLS.
+
+The image contains no `.env` file. Pass the backend environment explicitly:
+
+```bash
+docker build -t mike-backend -f backend/Dockerfile .
+docker run --rm -p 3001:3001 --env-file backend/.env \
+  -e NODE_ENV=production \
+  -e FRONTEND_URL=https://app.example.com \
+  -e API_PUBLIC_URL=https://app.example.com/api \
+  mike-backend
+```
+
+To try the image on your own machine over plain `http`, pass
+`-e NODE_ENV=development` with `http://localhost` URLs instead. When required
+settings are missing, the fatal startup message lists each variable and
+repeats this choice.
 
 The repository includes Dockerfiles for the backend, frontend, and Word add-in.
 Build and run the production add-in host with its public URLs baked into the
