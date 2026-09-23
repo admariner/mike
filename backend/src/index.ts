@@ -9,6 +9,7 @@ import { manifestPublicKey } from "./lib/manifestSigning";
 import { validateRuntimeConfiguration } from "./lib/runtimeConfig";
 import { startAllWorkers, stopAllWorkers } from "./workerRuntime";
 import { flushSentry, reportError } from "./lib/observability/sentry";
+import { failBoot } from "./lib/processLifecycle";
 
 const PORT = process.env.PORT ?? 3001;
 
@@ -31,10 +32,7 @@ async function validateBootConfiguration(): Promise<void> {
       console.log(`Export manifests signed with key ${signingKey.key_id}`);
     }
   } catch (err) {
-    reportError(err, { tags: { component: "boot", stage }, level: "fatal" });
-    console.error(err instanceof Error ? err.message : String(err));
-    await flushSentry();
-    process.exit(1);
+    await failBoot(err, stage);
   }
 }
 
