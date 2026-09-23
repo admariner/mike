@@ -7,6 +7,7 @@ import type { AssistantEvent, Chat } from "@/app/components/shared/types";
 const reportApiFailure = vi.hoisted(() => vi.fn());
 const reportNetworkFailure = vi.hoisted(() => vi.fn());
 vi.mock("@/app/lib/errorReporting", () => ({
+    trackPendingRequest: () => () => {},
     reportApiFailure,
     reportNetworkFailure,
 }));
