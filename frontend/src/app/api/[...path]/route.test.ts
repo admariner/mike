@@ -114,6 +114,7 @@ describe("same-origin API gateway", () => {
     });
 
     it("returns a sanitized 502 when the backend is unavailable", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
         fetchMock.mockRejectedValue(new Error("connect ECONNREFUSED backend"));
         const request = new NextRequest("https://app.example.test/api/health");
 
@@ -124,6 +125,44 @@ describe("same-origin API gateway", () => {
             detail: "The API is temporarily unavailable.",
             request_id: response.headers.get("x-request-id"),
         });
+    });
+
+    // MIKE-FRONTEND-4/5/8: a self-hoster whose browser gets a 502 has to be
+    // able to find WHY in their own Next server log (ECONNREFUSED, DNS,
+    // TLS). Their local log is not the privacy boundary; the Sentry
+    // transport is, and it drops this log line as already reported.
+    it("logs the upstream error for the operator, and Sentry does not file the log twice", async () => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        const failure = new TypeError("fetch failed", {
+            cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:3001"), {
+                code: "ECONNREFUSED",
+            }),
+        });
+        fetchMock.mockRejectedValue(failure);
+        const request = new NextRequest("https://app.example.test/api/models/configured");
+
+        const response = await GET(request, context(["models", "configured"]));
+        const requestId = response.headers.get("x-request-id");
+
+        expect(errorSpy).toHaveBeenCalledWith(
+            "[api-gateway] upstream request failed",
+            { requestId, stage: "gateway-fetch", error: failure },
+        );
+
+        // The real scrubber: once reportError marked the error, the console
+        // bridge's copy of this exact log call is dropped, not re-sent.
+        const { createEventScrubber } = await vi.importActual<
+            typeof import("@/shared/lib/sentryEvent")
+        >("@/shared/lib/sentryEvent");
+        const scrubber = createEventScrubber();
+        const [reported] = reportError.mock.calls.at(-1) as [unknown];
+        scrubber.markReported(reported);
+        expect(
+            scrubber.scrubEvent(
+                { logger: "console", message: "[api-gateway] upstream request failed" },
+                { captureContext: { extra: { arguments: errorSpy.mock.calls.at(-1) } } },
+            ),
+        ).toBeNull();
     });
 
     it("reads API_BASE_URL when the gateway handles the request", async () => {
@@ -145,7 +184,7 @@ describe("same-origin API gateway", () => {
     it("fails safely when production runtime configuration is missing", async () => {
         vi.stubEnv("NODE_ENV", "production");
         vi.stubEnv("API_BASE_URL", "");
-        const errorSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
         const request = new NextRequest("https://app.example.test/api/health");
 
         const response = await GET(request, context(["health"]));

@@ -78,8 +78,12 @@ async function proxy(request: NextRequest, context: RouteContext) {
                 request_id: requestId,
             },
         });
-        // Do not create a second console error event or log private upstream prose.
-        console.warn("[api-gateway] upstream request failed", { requestId, stage });
+        // The operator's own server log keeps the real cause (ECONNREFUSED,
+        // DNS, TLS): without it a self-hoster seeing 502s cannot tell a
+        // stopped backend from a wrong API_BASE_URL. Privacy is enforced at
+        // the Sentry transport, not here, and because reportError marked
+        // this error, a console bridge drops the nested copy as a duplicate.
+        console.error("[api-gateway] upstream request failed", { requestId, stage, error });
         return Response.json(
             { detail: "The API is temporarily unavailable.", request_id: requestId },
             { status: 502, headers: { "x-request-id": requestId } },
